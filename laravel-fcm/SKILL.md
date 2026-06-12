@@ -371,6 +371,32 @@ if ($request->filled('fcm_token')) {
 }
 ```
 
+**Wajib juga: endpoint refresh token.** Firebase bisa me-refresh token kapan saja saat user masih login (`onTokenRefresh` di mobile). Tanpa endpoint ini, token di backend basi dan push berhenti sampai user login ulang. Tambahkan route di grup `auth:sanctum`:
+
+```php
+Route::post('/auth/fcm-token', [AuthController::class, 'updateFcmToken']);
+```
+
+```php
+public function updateFcmToken(Request $request): JsonResponse
+{
+    $request->validate([
+        'fcm_token' => 'required|string',
+        'device_id' => 'nullable|string',
+        'platform'  => 'nullable|in:android,ios',
+    ]);
+
+    UserDevice::updateOrCreate(
+        ['user_id' => $request->user()->id, 'device_id' => $request->device_id ?? 'default'],
+        ['fcm_token' => $request->fcm_token, 'platform' => $request->platform ?? 'android']
+    );
+
+    return response()->json(['success' => true, 'message' => 'FCM token diperbarui.']);
+}
+```
+
+Di sisi mobile, panggil endpoint ini dari listener `FirebaseMessaging.instance.onTokenRefresh` (Flutter) dengan `device_id` yang sama seperti saat login.
+
 Opsional tapi disarankan — hapus device saat logout agar user yang sudah logout tidak menerima push:
 
 ```php
@@ -421,3 +447,4 @@ KirimFcmNotifikasiJob::dispatch(
 - **Path kredensial relatif di-resolve dengan `base_path()`** — jangan pakai `file_exists()` langsung pada path relatif, karena cwd web request berbeda dengan CLI/queue worker.
 - **404/410 = token mati**, device dihapus otomatis. Error lain (5xx, network) memicu retry job — jangan ikut menghapus device pada error selain 404/410.
 - **Jangan commit file service account JSON.** Untuk production, alternatifnya isi `FIREBASE_CREDENTIALS` langsung dengan JSON satu baris (service ini mendeteksi string yang diawali `{`).
+- **Token Firebase bisa berubah saat user masih login.** Endpoint `POST /auth/fcm-token` (Step 6) wajib dipanggil mobile app dari `onTokenRefresh` — registrasi saat login saja tidak cukup.
